@@ -74,9 +74,9 @@ def process_complete_pipeline(
     df_rawdata2 = (
         pl.read_csv(navstack_path)
         .rename({
-            "payload.event_time": "event",
-            "payload.data.code": "code",
-            "payload.data.reason": "reason"
+            "event_time": "event",
+            "data.code": "code",
+            "reason": "error_message"
         })
         .with_columns(
             pl.col('event').str.strptime(pl.Datetime(time_zone='UTC'), '%+')
@@ -93,8 +93,8 @@ def process_complete_pipeline(
     df_rawdata1 = (
         pl.read_csv(rawdata1_path)
         .rename({
-            "payload.starttime": "start",
-            "payload.endtime": "end"
+            "starttime": "start",
+            "endtime": "end"
         })
         .with_columns([
             pl.col('start').str.strptime(pl.Datetime(time_zone='UTC'), '%+'),
@@ -187,8 +187,8 @@ def process_complete_pipeline(
             return jax.vmap(check_event)(events)
         
         for serial in tqdm(unique_serials, desc="Processing serials (vmap)"):
-            routeruns_filtered = df_routeruns_1_sorted.filter(pl.col('serial_no') == serial)
-            navstack_filtered = df_navstack_1_sorted.filter(pl.col('serial_no') == serial)
+            routeruns_filtered = df_routeruns_1_sorted.filter(pl.col('id') == serial)
+            navstack_filtered = df_navstack_1_sorted.filter(pl.col('id') == serial)
             
             if len(navstack_filtered) == 0:
                 continue
@@ -215,12 +215,12 @@ def process_complete_pipeline(
             # summarize results
             for err_idx, sess_idx in zip(error_indices_cpu, session_indices_cpu):
                 result_rows.append({
-                    'serial_no': serial,
+                    'id': serial,
                     'start': routeruns_starts[int(sess_idx)],
                     'end': routeruns_ends[int(sess_idx)],
                     'error_code': navstack_codes[int(err_idx)],
-                    'reason': navstack_reasons[int(err_idx)],
-                    'event_time': navstack_events[int(err_idx)]
+                    'error_message': navstack_reasons[int(err_idx)],
+                    'event': navstack_events[int(err_idx)]
                 })
         
         print('*' * 80)
@@ -254,12 +254,12 @@ def process_complete_pipeline(
             .agg(pl.count().alias('count'))
             .pivot(
                 values='count',
-                index='serial_no',
+                index='id',
                 columns='error_code',
                 aggregate_function='sum'
             )
             .fill_null(0)  # fill NULL with 0
-            .sort('serial_no')
+            .sort('id')
         )
 
         return df_error_counts_0
@@ -276,7 +276,7 @@ def process_complete_pipeline(
     if drop_error_columns:
         columns_to_keep = [
             col for col in df_error_matrix.columns 
-            if col == 'serial_no' or col not in drop_error_columns
+            if col == 'id' or col not in drop_error_columns
         ]
         df_error_matrix_filtered = df_error_matrix.select(columns_to_keep)
     else:
@@ -288,7 +288,7 @@ def process_complete_pipeline(
         print(df_error_matrix_filtered.head(15))
     
     # final results as matrix excluded id column 
-    df_error_matrix_final = df_error_matrix_filtered.drop('serial_no')
+    df_error_matrix_final = df_error_matrix_filtered.drop('id')
     
     if display_results:
         print(f"number of columns as result: {len(df_error_matrix_final.columns)}")
